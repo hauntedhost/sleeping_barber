@@ -2,21 +2,36 @@ defmodule Shop do
   @name :barber_shop
   @num_chairs 3
 
+  # Public API
+
+  # spawn #loop, pass pid to Barber
   def open do
     shop_pid = spawn(__MODULE__, :loop, [])
     :global.register_name(@name, shop_pid)
     Barber.register(shop_pid)
   end
 
-  # add one or more customers to shop
-  def add(customers) when is_list(customers), do: customers |> Enum.map(&add/1)
-  def add(customer), do: send(self_pid, {:add, customer})
+  # add array of customers to shop
+  def add(customers) when is_list(customers) do
+    customers |> Enum.map(&add/1)
+  end
+
+  # add one customer to shop
+  def add(customer) do
+    send(self_pid, {:add, customer})
+  end
 
   # check status of shop
-  def status?, do: send(self_pid, {:shop_status})
+  def status? do
+    send(self_pid, {:shop_status})
+  end
 
   # check status of barber
-  def barber?, do: send(self_pid, {:barber_status})
+  def barber? do
+    send(self_pid, {:barber_status})
+  end
+
+  # Private API
 
   def loop(barber_pid \\ nil, in_chair \\ nil, waiting \\ []) do
     receive do
@@ -37,11 +52,11 @@ defmodule Shop do
         send(barber_pid, {:cut, customer})
         loop(barber_pid, customer, waiting)
       shop_full?(waiting) ->
-        IO.puts("shop is full, customer is leaving ...")
+        IO.puts("shop is full, #{customer} is leaving ...")
         loop(barber_pid, in_chair, waiting)
       true ->
-        IO.puts("customer is sitting down")
-        loop(barber_pid, in_chair, [customer|waiting])
+        IO.puts("#{customer} is sitting down")
+        loop(barber_pid, in_chair, waiting ++ [customer])
     end
   end
 
@@ -75,17 +90,25 @@ defmodule Shop do
   end
 
   # boolean helpers
-  defp chair_empty?(in_chair), do: is_nil(in_chair)
-  defp shop_full?(waiting), do: Enum.count(waiting) >= @num_chairs
+  defp chair_empty?(in_chair) do
+    is_nil(in_chair)
+  end
+
+  defp shop_full?(waiting) do
+    Enum.count(waiting) >= @num_chairs
+  end
 
   # lookup self pid
-  defp self_pid, do: :global.whereis_name(@name)
+  defp self_pid do
+    :global.whereis_name(@name)
+  end
 end
 
 defmodule Barber do
-  @time_per_cut 3_000
-  @time_until_bored 30_000
+  @time_per_cut 5_000
+  @time_until_bored 15_000
 
+  # spawn #loop, register pid with shop
   def register(shop_pid) do
     barber_pid = spawn(__MODULE__, :loop, [shop_pid])
     send(shop_pid, {:register_barber, barber_pid})
