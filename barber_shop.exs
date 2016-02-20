@@ -4,11 +4,8 @@ defmodule Shop do
 
   # Public API
 
-  # spawn shop loop, register shop, pass shop to Barber
   def open do
-    shop = spawn(__MODULE__, :loop, [initial_state])
-    :global.register_name(@name, shop)
-    Barber.register(shop)
+    spawn_shop |> spawn_barber
   end
 
   # add array of customers to shop
@@ -100,6 +97,20 @@ defmodule Shop do
     loop(%{state | barber: barber})
   end
 
+  # spawn shop loop, register shop as a global
+  defp spawn_shop do
+    shop = spawn_link(Shop, :loop, [initial_state])
+    :global.register_name(@name, shop)
+    shop
+  end
+
+  # spawn barber, register barber with shop
+  defp spawn_barber(shop) do
+    barber = spawn_link(Barber, :loop, [shop])
+    send(shop, {:register_barber, barber})
+    barber
+  end
+
   # lookup shop pid
   defp shop do
     :global.whereis_name(@name)
@@ -109,12 +120,6 @@ end
 defmodule Barber do
   @time_per_cut 5_000
   @time_until_bored 15_000
-
-  # spawn barber loop, register barber with shop
-  def register(shop) do
-    barber = spawn(__MODULE__, :loop, [shop])
-    send(shop, {:register_barber, barber})
-  end
 
   def loop(shop) do
     receive do
