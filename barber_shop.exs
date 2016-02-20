@@ -20,41 +20,58 @@ defmodule Shop do
 
   def loop(barber_pid \\ nil, in_chair \\ nil, waiting \\ []) do
     receive do
-      {:shop_status} ->
-        IO.puts("in chair: #{inspect(in_chair)}")
-        IO.puts("waiting: #{inspect(waiting)}")
-      {:barber_status} ->
-        cond do
-          in_chair ->
-            IO.puts("barber is currently cutting hair for #{in_chair}")
-          true ->
-            IO.puts("barber fell asleep")
-        end
-      {:barber_done} ->
-        IO.puts("barber is finished cutting hair for #{in_chair}")
-        case waiting do
-          [next|remaining] ->
-            send(barber_pid, {:cut, next})
-            loop(barber_pid, next, remaining)
-          [] ->
-            loop(barber_pid, nil, [])
-        end
-      {:add, customer} ->
-        cond do
-          chair_empty?(in_chair) ->
-            send(barber_pid, {:cut, customer})
-            loop(barber_pid, customer, waiting)
-          shop_full?(waiting) ->
-            IO.puts("shop is full, customer is leaving ...")
-          true ->
-            IO.puts("customer is sitting down")
-            loop(barber_pid, in_chair, [customer|waiting])
-        end
-      {:register_barber, barber_pid} ->
-        IO.puts("registering barber: #{inspect(barber_pid)}")
-        loop(barber_pid, in_chair, waiting)
+      {:add, customer}               -> add(customer, barber_pid, in_chair, waiting)
+      {:barber_done}                 -> barber_done(barber_pid, in_chair, waiting)
+      {:shop_status}                 -> shop_status(in_chair, waiting)
+      {:barber_status}               -> barber_status(in_chair)
+      {:register_barber, barber_pid} -> register_barber(barber_pid)
     end
     loop(barber_pid, in_chair, waiting)
+  end
+
+  # receive actions
+
+  defp add(customer, barber_pid, in_chair, waiting) do
+    cond do
+      chair_empty?(in_chair) ->
+        send(barber_pid, {:cut, customer})
+        loop(barber_pid, customer, waiting)
+      shop_full?(waiting) ->
+        IO.puts("shop is full, customer is leaving ...")
+        loop(barber_pid, in_chair, waiting)
+      true ->
+        IO.puts("customer is sitting down")
+        loop(barber_pid, in_chair, [customer|waiting])
+    end
+  end
+
+  defp barber_done(barber_pid, in_chair, waiting) do
+    IO.puts("barber is finished cutting hair for #{in_chair}")
+    case waiting do
+      [next|remaining] ->
+        send(barber_pid, {:cut, next})
+        loop(barber_pid, next, remaining)
+      [] ->
+        loop(barber_pid, nil, [])
+    end
+  end
+
+  defp shop_status(in_chair, waiting) do
+    IO.puts("in chair: #{inspect(in_chair)}")
+    IO.puts("waiting: #{inspect(waiting)}")
+  end
+
+  defp barber_status(nil) do
+    IO.puts("barber fell asleep")
+  end
+
+  defp barber_status(in_chair) do
+    IO.puts("barber is currently cutting hair for #{in_chair}")
+  end
+
+  defp register_barber(barber_pid) do
+    IO.puts("registering barber: #{inspect(barber_pid)}")
+    loop(barber_pid)
   end
 
   # boolean helpers
