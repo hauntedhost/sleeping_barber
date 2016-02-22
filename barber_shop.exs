@@ -29,7 +29,7 @@ defmodule Shop do
     case state do
       %{in_chair: in_chair} when is_nil(in_chair) ->
         IO.puts("barber chair is empty, #{customer} is waking up the barber")
-        GenServer.cast(shop, {:cut_hair, customer})
+        GenServer.cast(shop, {:cut_hair})
         {:reply, :ok, %{state | in_chair: customer}}
       %{waiting: waiting} when length(waiting) == @num_chairs ->
         IO.puts("shop is full, #{customer} is leaving")
@@ -44,7 +44,7 @@ defmodule Shop do
     case state do
       %{waiting: [next|remaining]} ->
         IO.puts("#{next} is next in line")
-        GenServer.cast(shop, {:cut_hair, next})
+        GenServer.cast(shop, {:cut_hair})
         {:reply, :ok, %{ state | in_chair: next, waiting: remaining}}
       _ ->
         IO.puts("no one else is waiting")
@@ -58,11 +58,12 @@ defmodule Shop do
     {:reply, :ok, state}
   end
 
-  def handle_cast({:cut_hair, customer}, state) do
-    IO.puts("barber is cutting hair for #{customer}")
+  def handle_cast({:cut_hair}, state) do
+    IO.puts("barber is cutting hair for #{state.in_chair}")
+
     Task.async(fn ->
       :timer.sleep(@time_per_cut)
-      IO.puts("barber is done cutting hair for #{customer}")
+      IO.puts("barber is done cutting hair for #{state.in_chair}")
       GenServer.call(shop, {:barber_done})
     end)
     {:noreply, state}
