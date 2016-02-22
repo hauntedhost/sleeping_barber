@@ -1,11 +1,11 @@
 defmodule Shop do
+  use GenServer
   @name :barber_shop
   @num_chairs 3
-
-  # Public API
+  @time_per_cut 5_000
 
   def open do
-    spawn_shop |> spawn_barber
+    shop || spawn_shop
   end
 
   # add array of customers to shop
@@ -15,127 +15,77 @@ defmodule Shop do
 
   # add one customer to shop
   def add(customer) do
-    send(shop, {:add, customer})
+    GenServer.call(shop, {:add, customer})
   end
 
   # check status of shop
-  def status? do
-    send(shop, {:shop_status})
+  def status do
+    GenServer.call(shop, {:status})
   end
 
-  # check status of barber
-  def barber? do
-    send(shop, {:barber_status})
-  end
+  # GenServer
 
-  # Private API
-
-  defp initial_state do
-    %{barber: nil, in_chair: nil, waiting: []}
-  end
-
-  def loop(state) do
-    receive do
-      {:add, customer}           -> add(customer, state)
-      {:barber_done}             -> barber_done(state)
-      {:shop_status}             -> shop_status(state)
-      {:barber_status}           -> barber_status(state)
-      {:register_barber, barber} -> register_barber(barber, state)
+  def handle_call({:add, customer}, _from, state) do
+    case state do
+      %{in_chair: in_chair} when is_nil(in_chair) ->
+        IO.puts("barber chair is empty, #{customer} is waking up the barber")
+        GenServer.cast(shop, {:cut_hair, customer})
+        {:reply, :ok, %{state | in_chair: customer}}
+      %{waiting: waiting} when length(waiting) == @num_chairs ->
+        IO.puts("shop is full, #{customer} is leaving")
+        {:reply, :ok, state}
+      _ ->
+        IO.puts("#{customer} is sitting down")
+        {:reply, :ok, %{state | waiting: state.waiting ++ [customer]}}
     end
-    loop(state)
   end
 
-  # loop actions
-
-  defp add(customer, state = %{in_chair: in_chair}) when is_nil(in_chair) do
-    IO.puts("barber chair is empty, #{customer} is waking up the barber")
-    send(state.barber, {:cut_hair, customer})
-    loop(%{state | in_chair: customer })
+  def handle_call({:barber_done}, _from, state) do
+    case state do
+      %{waiting: [next|remaining]} ->
+        IO.puts("#{next} is next in line")
+        GenServer.cast(shop, {:cut_hair, next})
+        {:reply, :ok, %{ state | in_chair: next, waiting: remaining}}
+      _ ->
+        IO.puts("no one else is waiting")
+        {:reply, :ok, %{ state | in_chair: nil}}
+    end
   end
 
-  defp add(customer, state = %{waiting: waiting}) when length(waiting) == @num_chairs do
-    IO.puts("shop is full, #{customer} is leaving")
-    loop(state)
-  end
-
-  defp add(customer, state) do
-    IO.puts("#{customer} is sitting down")
-    loop(%{state | waiting: state.waiting ++ [customer]})
-  end
-
-  defp barber_done(state) do
-    IO.puts("barber is finished cutting hair for #{state.in_chair}")
-    handle_next_customer(state)
-  end
-
-  defp handle_next_customer(state = %{waiting: [next|remaining]}) do
-    IO.puts("#{next} is next in line")
-    send(state.barber, {:cut_hair, next})
-    loop(%{ state | in_chair: next, waiting: remaining})
-  end
-
-  defp handle_next_customer(state = %{waiting: []}) do
-    IO.puts("no one else is waiting")
-    loop(%{ state | in_chair: nil})
-  end
-
-  defp shop_status(state) do
+  def handle_call({:status}, _from, state) do
     IO.puts("in chair: #{inspect(state.in_chair)}")
     IO.puts("waiting: #{inspect(state.waiting)}")
+    {:reply, :ok, state}
   end
 
-  defp barber_status(%{in_chair: nil}) do
-    IO.puts("barber fell asleep")
+  def handle_cast({:cut_hair, customer}, state) do
+    IO.puts("barber is cutting hair for #{customer}")
+    Task.async(fn ->
+      :timer.sleep(@time_per_cut)
+      IO.puts("barber is done cutting hair for #{customer}")
+      GenServer.call(shop, {:barber_done})
+    end)
+    {:noreply, state}
   end
 
-  defp barber_status(%{in_chair: customer}) do
-    IO.puts("barber is currently cutting hair for #{customer}")
-  end
+  # private API
 
-  defp register_barber(barber, state) do
-    IO.puts("registering barber: #{inspect(barber)}")
-    loop(%{state | barber: barber})
-  end
-
-  # spawn shop loop, register shop as a global
+  # spawn shop, register shop as a global
   defp spawn_shop do
-    shop = spawn_link(Shop, :loop, [initial_state])
+    {:ok, shop} = GenServer.start_link(__MODULE__, initial_state)
     :global.register_name(@name, shop)
     shop
   end
 
-  # spawn barber, register barber with shop
-  defp spawn_barber(shop) do
-    barber = spawn_link(Barber, :loop, [shop])
-    send(shop, {:register_barber, barber})
-    barber
+  defp initial_state do
+    %{in_chair: nil, waiting: []}
   end
 
   # lookup shop pid
   defp shop do
-    :global.whereis_name(@name)
-  end
-end
-
-defmodule Barber do
-  @time_per_cut 5_000
-  @time_until_bored 15_000
-
-  def loop(shop) do
-    receive do
-      {:cut_hair, customer}   -> cut_hair(customer, shop)
-      after @time_until_bored -> express_boredom
+    case :global.whereis_name(@name) do
+      :undefined -> nil
+      shop_pid   -> shop_pid
     end
-    loop(shop)
-  end
-
-  defp cut_hair(customer, shop) do
-    IO.puts("cutting hair for #{customer}")
-    :timer.sleep(@time_per_cut)
-    send(shop, {:barber_done})
-  end
-
-  defp express_boredom do
-    IO.puts("yawn. not much to do around here...")
   end
 end
